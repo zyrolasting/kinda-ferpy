@@ -56,7 +56,11 @@ declared, meaning that this is not a full interface for functional reactive
 programming. It's just a nice way to model dependency relationships.
 
 All values are synchronized on the current thread when initializing or
-updating a stateful cell.
+updating a stateful cell. In the above example, the body of
+@racket[sum] evaluates when it is first declared, and as a consequence
+of evaluating @racket[(y 8)]. When evaluating @racket[(sum)], you are
+@italic{only accessing that cell's value}. The library will keep data
+in sync for you while doing only minimal work.
 
 @section{Fair Warnings}
 

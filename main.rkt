@@ -1,7 +1,10 @@
 #lang racket/base
 
 (require racket/undefined)
-(provide stateful-cell % ※
+
+(provide % ※
+         stateful-cell
+         make-stateful-cell
          current-hard-walk-limit
          stateful-cell?
          discovery-phase?)
@@ -44,7 +47,34 @@
   (for ([dependent (node-dependents n)])
     (refresh! dependent (add1 steps-walked))))
 
-(define (stateful-cell compute #:dependencies [explicit-dependencies '()])
+
+(require (for-syntax racket/base
+                     racket/list
+                     racket/syntax
+                     syntax/keyword))
+
+(define-syntax (stateful-cell stx)
+  (syntax-case stx ()
+    [(_ code ...)
+     (let-values ([(parsed-options unused)
+                   (parse-keyword-options #'(code ...)
+                                          (list (list '#:dependency
+                                                      check-identifier
+                                                      check-identifier))
+                                          #:context #'stateful-cell)])
+       (with-syntax ([(requested-dependency-bindings ...)
+                      (map (λ (spec)
+                             (with-syntax ([orig/id (third spec)]
+                                           [body/id (fourth spec)])
+                               #'(body/id (orig/id))))
+                           parsed-options)]
+                     [(body ...) unused])
+         #'(make-stateful-cell
+            (λ ()
+              (let (requested-dependency-bindings ...)
+                body ...)))))]))
+
+(define (make-stateful-cell compute #:dependencies [explicit-dependencies '()])
   (define n (node '() '() (normalize compute) undefined))
 
   (define dependencies
@@ -63,7 +93,7 @@
   (refresh! n)
   n)
 
-(define ※ stateful-cell)
+(define ※ make-stateful-cell)
 (define % ※)
 
 (module+ test

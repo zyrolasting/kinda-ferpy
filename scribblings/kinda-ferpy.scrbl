@@ -212,7 +212,9 @@ you can use the following pattern to make dependencies visible and avoid unneces
 (define c
   (% (lambda ()
     (if (discovery-phase?)
-        (begin (file-path) (file-proc))
+        (begin (file-path)
+               (file-proc)
+               (void))
         (call-with-input-file (file-path)
                               (unbox (file-proc)))))))]
 

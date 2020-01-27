@@ -3,13 +3,14 @@
 (require racket/undefined)
 (provide stateful-cell % ※
          current-hard-walk-limit
-         stateful-cell?)
+         stateful-cell?
+         discovery-phase?)
 
 ;; Based on https://github.com/MaiaVictor/PureState
 ;; See tests and docs for usage details.
 
 (define captured-deps '())
-(define capture? (make-parameter #f))
+(define discovery-phase? (make-parameter #f))
 (define current-hard-walk-limit (make-parameter 10000))
 
 (define (normalize compute)
@@ -20,7 +21,7 @@
 (struct node (dependencies dependents compute value)
   #:mutable #:property prop:procedure
   (λ (self [new-compute undefined])
-     (when (capture?)
+     (when (discovery-phase?)
        (set! captured-deps (cons self captured-deps)))
      (unless (eq? new-compute undefined)
        (set-node-compute! self (normalize new-compute))
@@ -47,7 +48,7 @@
         explicit-dependencies
         (begin
           (set! captured-deps '())
-          (parameterize ([capture? #t])
+          (parameterize ([discovery-phase? #t])
             ((node-compute n)))
           (set-node-dependencies! n captured-deps)
           captured-deps)))
@@ -144,7 +145,7 @@
     (define y (% 2))
     (define z (% #:dependencies (list x y)
                  (λ _
-                   (when (capture?) (error "should not get here"))
+                   (when (discovery-phase?) (error "should not get here"))
                    (if (x) 1 (y)))))
     (x #f)
     (check-equal? (z) 2)
@@ -156,7 +157,7 @@
     (define x (% #t))
     (define y (% 2))
     (define z (% (λ _
-                   (when (capture?)
+                   (when (discovery-phase?)
                      (values (x) (y)))
                    (if (x) 1 (y)))))
     (x #f)

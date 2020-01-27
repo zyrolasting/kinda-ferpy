@@ -177,7 +177,7 @@ discovery phase.
 
 @section{Reference}
 @defproc[(stateful-cell [#:dependencies explicit-dependencies (listof stateful-cell?) '()]
-                        [managed any/c])
+                        [managed (if/c procedure? (-> any/c) any/c)])
                         stateful-cell?]{
 Returns a stateful cell @racket[P] that, when applied, returns the latest correct version of
 a Racket value in terms of dependencies.

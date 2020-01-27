@@ -10,7 +10,11 @@
 ;; See tests and docs for usage details.
 
 (define captured-deps '())
-(define discovery-phase? (make-parameter #f))
+(define capture? (make-parameter #f))
+
+; Do not allow users to change parameter.
+(define (discovery-phase) (capture?))
+
 (define current-hard-walk-limit (make-parameter 10000))
 
 (define (normalize compute)
@@ -21,7 +25,7 @@
 (struct node (dependencies dependents compute value)
   #:mutable #:property prop:procedure
   (λ (self [new-compute undefined])
-     (when (discovery-phase?)
+     (when (capture?)
        (set! captured-deps (cons self captured-deps)))
      (unless (eq? new-compute undefined)
        (set-node-compute! self (normalize new-compute))
@@ -48,7 +52,7 @@
         explicit-dependencies
         (begin
           (set! captured-deps '())
-          (parameterize ([discovery-phase? #t])
+          (parameterize ([capture? #t])
             ((node-compute n)))
           (set-node-dependencies! n captured-deps)
           captured-deps)))
@@ -145,7 +149,7 @@
     (define y (% 2))
     (define z (% #:dependencies (list x y)
                  (λ _
-                   (when (discovery-phase?) (error "should not get here"))
+                   (when (capture?) (error "should not get here"))
                    (if (x) 1 (y)))))
     (x #f)
     (check-equal? (z) 2)
@@ -157,7 +161,7 @@
     (define x (% #t))
     (define y (% 2))
     (define z (% (λ _
-                   (when (discovery-phase?)
+                   (when (capture?)
                      (values (x) (y)))
                    (if (x) 1 (y)))))
     (x #f)

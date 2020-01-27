@@ -152,7 +152,7 @@ a Racket value in terms of dependencies.
 The behavior of @racket[P] and @racket[stateful-cell] both depend on @racket[managed]
 and @racket[explicit-dependencies].
 
-If @racket[managed] is not a procedure, then @racket[(P)] will return @racket[value].
+If @racket[managed] is not a procedure, then @racket[(P)] will return @racket[managed].
 
 If @racket[managed] is a procedure, then @racket[stateful-cell] will
 apply @racket[managed] once or twice according to the value of
@@ -178,9 +178,9 @@ are used as-is to construct relationships to other cells.}
 ]
 }
 
-@racket[(P new-value)] will update the stored value of @racket[P], and
+@racket[(P new-managed)] will update the stored value of @racket[P], and
 will synchronously update all dependent cells. Be warned that setting
-@racket[new-value] to a different procedure will NOT initialize a new
+@racket[new-managed] to a different procedure will NOT initialize a new
 dependency discovery phase, nor will it change the existing dependency
 relationships of @racket[P]. If you want a new discovery phase, create
 a new stateful cell.

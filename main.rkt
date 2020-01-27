@@ -13,7 +13,7 @@
 (define capture? (make-parameter #f))
 
 ; Do not allow users to change parameter.
-(define (discovery-phase) (capture?))
+(define (discovery-phase?) (capture?))
 
 (define current-hard-walk-limit (make-parameter 10000))
 

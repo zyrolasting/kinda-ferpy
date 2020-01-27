@@ -80,6 +80,8 @@ From the way @racket[if] works, @racket[(negative)] is not evaluated
 at discovery time. It therefore will not be recognized as a dependency
 of @racket[positive-or-negative].}]
 
+Let's cover some ways to address this.
+
 @section{Adjusting Your Writing}
 You can address dependency discovery blind spots by either
 writing expressions where they will always be evaluated,
@@ -100,7 +102,7 @@ For the former case, you can move dependencies out of the @racket[if].
 (displayln (positive-or-negative)) (code:comment "1")
 (switch #f)
 (displayln (positive-or-negative)) (code:comment "-1")
-]}
+]
 
 If that seems like a bad precedent to you, then list dependencies
 explicitly using the optional @racket[#:dependencies] argument to @racket[stateful-cell].
@@ -120,9 +122,9 @@ for dependency discovery purposes.
 
 This addresses both blind spots in dependency discovery by making
 missing dependencies obvious, while allowing you to skip potentially
-expensive operations. Why support implicit dependencies at all?
-Because then you save time avoiding boilerplate if your state graph is
-simple or planned.
+expensive operations during discovery. So why support implicit
+dependencies at all? Because then you save time avoiding boilerplate
+if your state graph is simple or planned.
 
 If you don't want to use @racket[#:dependencies] but are still worried
 about expensive computations or side-effects kicking off too early,
@@ -186,7 +188,7 @@ relationships of @racket[P]. If you want a new discovery phase, create
 a new stateful cell.
 
 @defthing[※ procedure? #:value stateful-cell]{
-For those who love single-character aliases and updating key bindings.
+For those who love single-character aliases and reconfiguring their editor.
 }
 
 @defthing[% procedure? #:value stateful-cell]{
@@ -197,6 +199,23 @@ For the rest, there's @racket[rename-in].
 
 @defproc[(stateful-cell? [v any/c]) boolean?]{
 Return @racket[#t] if @racket[v] is a value constructed with @racket[stateful-cell].
+}
+
+@defproc[(discovery-phase?) boolean?]{
+Returns @racket[#t] if the library is currently looking for implicit dependencies.
+
+You can use this to avoid potentially expensive operations within the body of a stateful
+cell. If you do not use the @racket[#:dependencies] argument in @racket[stateful-cell],
+you can use the following pattern to make dependencies visible and avoid unnecessary work.
+
+@racketblock[
+(define c
+  (% (lambda ()
+    (if (discovery-phase?)
+        (begin (file-path) (file-proc))
+        (call-with-input-file (file-path)
+                              (unbox (file-proc)))))))]
+
 }
 
 @defthing[current-hard-walk-limit (parameter/c exact-positive-integer?) #:value 10000]{

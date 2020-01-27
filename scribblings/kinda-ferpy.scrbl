@@ -66,7 +66,8 @@ in sync for you while doing only minimal work.
 
 @itemlist[
 @item{Cycles create infinite loops. @racket[current-hard-walk-limit] is your empirical protection.}
-@item{You will find reason to represent errors as values without aborting (Remember @litchar{#NAME?}, etc. in Excel?)}
+@item{You will find reason to represent errors as values without raising an exception. For example,
+a spreadsheet application will handle a division by zero by @hyperlink["https://filedn.com/lI3m84JVCumjvoKMPcGOsVp/images/spreadsheet%20error.png"]{showing a special error value} instead of crashing.}
 @item{Every cell will be evaluated immediately to discover dependencies.}
 @item{It's possible to produce incorrect values as a result of a stateful cell not being visible during discovery.
 @racketblock[

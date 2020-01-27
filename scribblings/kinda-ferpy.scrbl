@@ -222,5 +222,5 @@ you can use the following pattern to make dependencies visible and avoid unneces
 
 @defthing[current-hard-walk-limit (parameter/c exact-positive-integer?) #:value 10000]{
 A parameter that sets the hard maximum for the number of times change can propogate to
-dependencies. This is a simple, emperical way to respond to cycles.
+dependencies. This is a simple, empirical way to respond to cycles.
 }

@@ -12,6 +12,11 @@ This module provides a convenient reactive programming model that
 favors a particular mode of writing. Based on
 @hyperlink["https://github.com/MaiaVictor/PureState"]{PureState}.
 
+@bold{Warning}: The interface is currently unstable. Expect
+@racket[stateful-cell] to change it's name to
+@racket[make-stateful-cell].  @racket[stateful-cell] will become a
+macro.
+
 @section{Reading and Writing Values}
 To create a cell, apply @racket[stateful-cell] to a single Racket value.
 

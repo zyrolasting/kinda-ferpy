@@ -38,9 +38,7 @@
   (when (> steps-walked (current-hard-walk-limit))
     (error 'stateful-cell "Exceeded hard walk limit of ~a. Your dependencies might be circular."
            (current-hard-walk-limit)))
-  (set-node-value! n
-                   (apply (node-compute n)
-                          (map node-value (node-dependencies n))))
+  (set-node-value! n ((node-compute n)))
   (for ([dependent (node-dependents n)])
     (refresh! dependent (add1 steps-walked))))
 

@@ -179,7 +179,7 @@ dependencies.}}
 
 @item{If @racket[explicit-dependencies] is not empty, then @racket[stateful-cell] assumes that
 you know what you want and no discovery phase is necessary.  @racket[managed] will be applied once
-(with @racket[discovery-phase] set to @racket[#f]) to initialize its cell value. @racket[explicit-dependencies]
+(with @racket[discovery-phase?] set to @racket[#f]) to initialize its cell value. @racket[explicit-dependencies]
 are used as-is to construct relationships to other cells.}
 ]
 }

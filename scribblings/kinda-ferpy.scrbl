@@ -55,6 +55,14 @@ other cells that it uses. @racket[sum] depends on @racket[x] and
 declared, meaning that this is not a full interface for functional reactive
 programming. It's just a nice way to model dependency relationships.
 
+When a cell is initialized with a procedure, that procedure will be
+applied in a @italic{discovery phase} where the use of other cells
+flags them as dependencies. It will then be applied once more to
+initialize the cell. All of that only happens if you want this library
+to think of your dependencies as @italic{implicit} dependencies.
+We'll cover more about the implications and how to handle explicit
+dependencies in a moment.
+
 All values are synchronized on the current thread when initializing or
 updating a stateful cell. In the above example, the body of
 @racket[sum] evaluates when it is first declared, and as a consequence
@@ -72,18 +80,20 @@ a spreadsheet application will handle a division by zero by @hyperlink["https://
 @item{It's possible to produce incorrect values as a result of a stateful cell not being visible during discovery.
 @racketblock[
 (define switch (stateful-cell #t))
-(define positive (stateful-cell 1))
-(define negative (stateful-cell -1))
-(define positive-or-negative (stateful-cell (λ _ (if (switch) (positive) (negative)))))
+(define x (stateful-cell 1))
+(define y (stateful-cell -1))
+(define sum (stateful-cell (λ _ (+ (x) (if (switch) 1 (y))))))
 
-(displayln (positive-or-negative)) (code:comment "1")
+(sum) (code:comment "2")
 (switch #f)
-(displayln (positive-or-negative)) (code:comment "Still 1.")
+(sum) (code:comment "0")
+(y 0) (code:comment "DANGER: Won't update sum's cell!")
+(sum) (code:comment "Still 0. Should be 1.")
 ]
 
-From the way @racket[if] works, @racket[(negative)] is not evaluated
-at discovery time. It therefore will not be recognized as a dependency
-of @racket[positive-or-negative].}]
+From the way @racket[if] works, @racket[(y)] is not evaluated at
+discovery time. It therefore will not be recognized as a dependency of
+@racket[sum].}]
 
 Let's cover some ways to address this.
 
@@ -96,17 +106,18 @@ For the former case, you can move dependencies out of the @racket[if].
 
 @racketblock[
 (define switch (stateful-cell #t))
-(define positive (stateful-cell 1))
-(define negative (stateful-cell -1))
-(define positive-or-negative
-  (stateful-cell (λ _
-        (let ([p (positive)]
-              [n (negative)])
-          (if (switch) p n)))))
+(define x (stateful-cell 1))
+(define y (stateful-cell -1))
+(define sum (stateful-cell (λ _
+  (let ([x-val (x)]
+        [y-val (y)]
+    (+ x-val (if (switch) 1 y-val)))))))
 
-(displayln (positive-or-negative)) (code:comment "1")
+(sum) (code:comment "2")
 (switch #f)
-(displayln (positive-or-negative)) (code:comment "-1")
+(sum) (code:comment "0")
+(y 0) (code:comment "Will update the cell now")
+(sum) (code:comment "1")
 ]
 
 If that seems like a bad precedent to you, then list dependencies
@@ -116,14 +127,21 @@ nodes, but will not evaluate any procedure you provide in the cell
 for dependency discovery purposes.
 
 @racketblock[
-(define positive-or-negative
-  (stateful-cell #:dependencies (list positive negative)
-      (λ _ (if (switch) (positive) (negative)))))
+(define switch (stateful-cell #t))
+(define x (stateful-cell 1))
+(define y (stateful-cell -1))
+(define sum
+  (stateful-cell #:dependencies (list switch x y)
+    (λ _ (+ (x) (if (switch) 1 (y))))))
 
-(displayln (positive-or-negative)) (code:comment "1")
+(sum) (code:comment "2")
 (switch #f)
-(displayln (positive-or-negative)) (code:comment "-1")
+(sum) (code:comment "0")
+(y 0) (code:comment "Will update the cell now")
+(sum) (code:comment "1")
 ]
+
+Take care to list @italic{every dependency} in this case.
 
 This addresses both blind spots in dependency discovery by making
 missing dependencies obvious, while allowing you to skip potentially
@@ -135,19 +153,27 @@ If you don't want to use @racket[#:dependencies] but are still worried
 about expensive computations or side-effects kicking off too early,
 then you can check @racket[(discovery-phase?)] within a stateful cell
 body. It will tell you if the cell is being evaluated for discovery
-purposes.
+purposes. This gives you a hybrid approach where you can list
+dependencies for discovery, and express a relatively expensive
+computation for the times you need to compute a value.
 
 @racketblock[
-(define file-source
-  (stateful-cell (λ _
-        (if (discovery-phase?)
-          (void)
-          (call-with-input-file ...)))))]
+(define c
+  (% (lambda ()
+    (if (discovery-phase?)
+        (begin (file-path)
+               (file-proc)
+               (void))
+        (call-with-input-file (file-path)
+                              (unbox (file-proc)))))))]
 
-This does of course mean that any dependent cells still need to
+This does of course mean that any dependent cells may need to
 understand and react to conditions created during discovery. This
-example uses @racket[(void)] instead of @racket[undefined], and
-that will matter to any downstream cells checking for @racket[undefined].
+example uses @racket[(void)], and that will matter to any downstream
+cells checking for, say, @racket[undefined] during the discovery phase.
+That would be a problem if you wanted to do something interesting like
+choose a new set of dependencies based on upstream behavior during the
+discovery phase.
 
 @section{Reference}
 @defproc[(stateful-cell [#:dependencies explicit-dependencies (listof stateful-cell?) '()]

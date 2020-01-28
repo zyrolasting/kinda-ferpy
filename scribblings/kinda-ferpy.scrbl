@@ -285,7 +285,7 @@ For the rest, there's @racket[rename-in].
 }
 
 @defproc[(stateful-cell? [v any/c]) boolean?]{
-Return @racket[#t] if @racket[v] is a value constructed with @racket[stateful-cell].
+Return @racket[#t] if @racket[v] is a value constructed with @racket[stateful-cell] or @racket[make-stateful-cell].
 }
 
 @defproc[(discovery-phase?) boolean?]{

@@ -1,7 +1,13 @@
 #lang racket/base
 
-(require racket/undefined)
-(provide stateful-cell % ※
+(require racket/undefined
+         (for-syntax racket/base
+                     syntax/parse))
+
+(provide (rename-out [stateful-cell %]
+                     [stateful-cell ※])
+         stateful-cell
+         make-stateful-cell
          current-hard-walk-limit
          stateful-cell?
          discovery-phase?)
@@ -42,9 +48,9 @@
   (for ([dependent (node-dependents n)])
     (refresh! dependent (add1 steps-walked))))
 
-(define (stateful-cell compute #:dependencies [explicit-dependencies '()])
-  (define n (node '() '() (normalize compute) undefined))
 
+(define (make-stateful-cell compute #:dependencies [explicit-dependencies '()])
+  (define n (node '() '() (normalize compute) undefined))
   (define dependencies
     (if (> (length explicit-dependencies) 0)
         explicit-dependencies
@@ -54,19 +60,33 @@
             ((node-compute n)))
           (set-node-dependencies! n captured-deps)
           captured-deps)))
-
   (for ([dependency dependencies])
     (set-node-dependents! dependency
                           (cons n (node-dependents dependency))))
   (refresh! n)
   n)
 
-(define ※ stateful-cell)
-(define % ※)
+(define-syntax (stateful-cell stx)
+  (define-splicing-syntax-class explicit-dependency
+    #:description "an explicit dependency binding"
+    (pattern (~seq #:dependency u:id e:id)))
+
+  (syntax-parse stx #:context #'stateful-cell
+    [(stateful-cell d:explicit-dependency ...+ body:expr ...+)
+     #'(make-stateful-cell #:dependencies (list d.e ...)
+                           (λ () (let ([d.u (d.e)] ...) body ...)))]
+
+    [(stateful-cell body:expr ...+)
+     #'(make-stateful-cell (λ () body ...))]
+
+    [(stateful-cell d:explicit-dependency ...)
+     (raise-syntax-error 'stateful-cell
+                         "Expected body after dependency bindings"
+                         stx)]))
+
 
 (module+ test
   (require rackunit)
-
   (define (with-call-counter proc)
     (let ([num-calls 0])
       (values (λ A
@@ -75,17 +95,23 @@
               (λ _ num-calls))))
 
   (test-true "Can identify instances"
-    (stateful-cell? (% 1)))
+             (and (stateful-cell? (make-stateful-cell 1))
+                  (stateful-cell? (stateful-cell 1))))
 
-  (test-case "State graph procedures represent data or other procedures trivially"
+  (test-case "make-stateful-cell represents data or other procedures trivially"
     (let ([x 10])
-      (check-equal? ((% x)) x)
-      (check-equal? ((% (λ _ x))) x)))
+      (check-equal? ((make-stateful-cell x)) x)
+      (check-equal? ((make-stateful-cell (λ () x))) x)))
+
+  (test-case "stateful-cell uses the body for a new procedure, even if it means returning another procedure."
+    (let ([x 10])
+      (check-equal? ((stateful-cell x)) x)
+      (check-pred procedure? ((stateful-cell (λ () x))))))
 
   (test-case "Racket values can form dependency relationships"
-    (let* ([a (% 1)]
-           [b (% 1)]
-           [c (% (λ _ (+ (a) (b))))])
+    (let* ([a (stateful-cell 1)]
+           [b (stateful-cell 1)]
+           [c (stateful-cell (+ (a) (b)))])
       (check-equal? (c) 2)
       (a 2)
       (check-equal? (c) 3)))
@@ -96,14 +122,14 @@
     ; Sanity check the counter
     (test-equal? "a was not yet called" (a-count) 0)
 
-    (define stateful-a (% a))
+    (define stateful-a (make-stateful-cell a))
     (test-equal? "a is called twice; Once for discovery and once for initialization."
                  (a-count) 2)
 
     (define-values (b b-count) (with-call-counter (λ _ 1)))
-    (define stateful-b (% b))
+    (define stateful-b (make-stateful-cell b))
     (define-values (c c-count) (with-call-counter (λ _ (+ (stateful-a) (stateful-b)))))
-    (define stateful-c (% c))
+    (define stateful-c (make-stateful-cell c))
 
     (define (check-counts expectation
                           before
@@ -127,12 +153,12 @@
 
   (test-case "Dependencies are detected only when called during discovery."
     ; Ported example from https://github.com/MaiaVictor/PureState/issues/4
-    (define x (% #t))
-    (define y (% 2))
+    (define x (make-stateful-cell #t))
+    (define y (make-stateful-cell 2))
 
     ; y won't be marked as a dependency of z
     ; because (y) does not evaluate during discovery.
-    (define z (% (λ _ (if (x) 1 (y)))))
+    (define z (make-stateful-cell (λ _ (if (x) 1 (y)))))
 
     ; (y) does evaluate here.
     (x #f)
@@ -143,9 +169,9 @@
 
 
   (test-case "Explicit dependencies skip discovery and address blind spots."
-    (define x (% #t))
-    (define y (% 2))
-    (define z (% #:dependencies (list x y)
+    (define x (make-stateful-cell #t))
+    (define y (make-stateful-cell 2))
+    (define z (make-stateful-cell #:dependencies (list x y)
                  (λ _
                    (when (capture?) (error "should not get here"))
                    (if (x) 1 (y)))))
@@ -156,12 +182,24 @@
 
 
   (test-case "Explicit dependencies can be combined with discovery."
-    (define x (% #t))
-    (define y (% 2))
-    (define z (% (λ _
+    (define x (make-stateful-cell #t))
+    (define y (make-stateful-cell 2))
+    (define z (make-stateful-cell (λ _
                    (when (capture?)
                      (values (x) (y)))
                    (if (x) 1 (y)))))
+    (x #f)
+    (check-equal? (z) 2)
+    (y 3)
+    (check-equal? (z) 3))
+
+  (test-case "Explicit dependencies can be bound to new names using stateful-cell"
+    (define x (stateful-cell #t))
+    (define y (stateful-cell 2))
+    (define z (stateful-cell #:dependency a x
+                             #:dependency b y
+                             (when (capture?) (error "should not get here"))
+                             (if a 1 b)))
     (x #f)
     (check-equal? (z) 2)
     (y 3)

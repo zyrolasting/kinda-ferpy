@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require racket/undefined
+         racket/list
          (for-syntax racket/base
                      syntax/parse))
 
@@ -62,11 +63,13 @@
           (set! captured-deps '())
           (parameterize ([capture? #t])
             ((node-compute n)))
-          (set-node-dependencies! n captured-deps)
+          (set-node-dependencies! n (remove-duplicates captured-deps eq?))
           captured-deps)))
   (for ([dependency dependencies])
     (set-node-dependents! dependency
-                          (cons n (node-dependents dependency))))
+                          (remove-duplicates
+                           (cons n (node-dependents dependency))
+                           eq?)))
   (refresh! n)
   n)
 
@@ -220,4 +223,17 @@
                     dependents))
     (check-edges a (list) (list b))
     (check-edges b (list a) (list c))
-    (check-edges c (list b) (list))))
+    (check-edges c (list b) (list)))
+
+  (test-case "Each dependency and dependent appears at most once"
+    (define a (stateful-cell 1))
+    (define count 0)
+    (define b (stateful-cell (set! count (add1 count)) (a) (a) (a)))
+    (check-equal? count 2) ; 2 calls expected; Once for discovery, once for compute
+    (a 2)
+
+    ; If the b appears as a dependent multiple times for a, it will be called more
+    ; than once during an update. Make sure it's only called once more here.
+    (check-equal? count 3)
+    (check-equal? (length (filter (λ (d) (eq? d b))(stateful-cell-dependents a))) 1)
+    (check-equal? (length (filter (λ (d) (eq? d a))(stateful-cell-dependencies b))) 1)))

@@ -1,7 +1,9 @@
 #lang racket/base
 
-(require racket/undefined
+(require racket/class
+         racket/undefined
          racket/list
+         "./private/model.rkt"
          (for-syntax racket/base
                      syntax/parse))
 
@@ -9,29 +11,28 @@
                      [stateful-cell ※])
          stateful-cell
          make-stateful-cell
-         stateful-cell-dependencies
-         stateful-cell-dependents
-         current-hard-walk-limit
          stateful-cell?
          discovery-phase?)
 
-;; Based on https://github.com/MaiaVictor/PureState
+;; Inspired by https://github.com/MaiaVictor/PureState
 ;; See tests and docs for usage details.
-
 (define captured-deps '())
-(define capture? (make-parameter #f))
 
-; Do not allow users to change parameter.
+; Controls discovery phase. Users may not change this.
+(define capture? (make-parameter #f))
 (define (discovery-phase?) (capture?))
 
-(define current-hard-walk-limit (make-parameter 10000))
+; This is a global instance to cover all cells the user writes.
+; I am not yet sure if I can let the user manage a collection of
+; their own graphs.
+(define global-graph (new state-graph%))
 
 (define (normalize compute)
   (if (procedure? compute)
       compute
       (λ _ compute)))
 
-(struct node (dependencies dependents compute value)
+(struct node (compute value)
   #:mutable #:property prop:procedure
   (λ (self [new-compute undefined])
      (when (capture?)
@@ -41,21 +42,17 @@
        (refresh! self))
      (node-value self)))
 
-(define stateful-cell? (procedure-rename node? 'stateful-cell?))
-(define stateful-cell-dependencies (procedure-rename node-dependencies 'stateful-cell-dependencies))
-(define stateful-cell-dependents (procedure-rename node-dependents 'stateful-cell-dependents))
+(define stateful-cell?
+  (procedure-rename node? 'stateful-cell?))
 
-(define (refresh! n [steps-walked 0])
-  (when (> steps-walked (current-hard-walk-limit))
-    (error 'stateful-cell "Exceeded hard walk limit of ~a. Your dependencies might be circular."
-           (current-hard-walk-limit)))
+(define (refresh! n)
   (set-node-value! n ((node-compute n)))
-  (for ([dependent (node-dependents n)])
-    (refresh! dependent (add1 steps-walked))))
-
+  (send global-graph refresh-graph-info!)
+  (for ([next (send global-graph get-update-schedule n)])
+    (refresh! n)))
 
 (define (make-stateful-cell compute #:dependencies [explicit-dependencies '()])
-  (define n (node '() '() (normalize compute) undefined))
+  (define n (node (normalize compute) undefined))
   (define dependencies
     (if (> (length explicit-dependencies) 0)
         explicit-dependencies
@@ -63,14 +60,9 @@
           (set! captured-deps '())
           (parameterize ([capture? #t])
             ((node-compute n)))
-          (set-node-dependencies! n (remove-duplicates captured-deps eq?))
           captured-deps)))
-  (for ([dependency dependencies])
-    (set-node-dependents! dependency
-                          (remove-duplicates
-                           (cons n (node-dependents dependency))
-                           eq?)))
-  (refresh! n)
+  (send global-graph set-dependencies! n dependencies)
+  (set-node-value! n ((node-compute n)))
   n)
 
 (define-syntax (stateful-cell stx)
@@ -90,7 +82,6 @@
      (raise-syntax-error 'stateful-cell
                          "Expected body after dependency bindings"
                          stx)]))
-
 
 (module+ test
   (require rackunit)
@@ -210,30 +201,4 @@
     (x #f)
     (check-equal? (z) 2)
     (y 3)
-    (check-equal? (z) 3))
-
-  (test-case "Dependencies and dependents are available to those who ask"
-    (define a (stateful-cell 1))
-    (define b (stateful-cell (a)))
-    (define c (stateful-cell (b)))
-    (define (check-edges n dependencies dependents)
-      (check-equal? (stateful-cell-dependencies n)
-                    dependencies)
-      (check-equal? (stateful-cell-dependents n)
-                    dependents))
-    (check-edges a (list) (list b))
-    (check-edges b (list a) (list c))
-    (check-edges c (list b) (list)))
-
-  (test-case "Each dependency and dependent appears at most once"
-    (define a (stateful-cell 1))
-    (define count 0)
-    (define b (stateful-cell (set! count (add1 count)) (a) (a) (a)))
-    (check-equal? count 2) ; 2 calls expected; Once for discovery, once for compute
-    (a 2)
-
-    ; If the b appears as a dependent multiple times for a, it will be called more
-    ; than once during an update. Make sure it's only called once more here.
-    (check-equal? count 3)
-    (check-equal? (length (filter (λ (d) (eq? d b))(stateful-cell-dependents a))) 1)
-    (check-equal? (length (filter (λ (d) (eq? d a))(stateful-cell-dependencies b))) 1)))
+    (check-equal? (z) 3)))

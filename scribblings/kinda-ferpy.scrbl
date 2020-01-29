@@ -8,12 +8,27 @@
 @title{Expressive Functional Reactive Programming (Kinda)}
 @defmodule[kinda-ferpy]
 
-This module provides a convenient reactive programming model that
-favors a particular mode of writing. Based on
-@hyperlink["https://github.com/MaiaVictor/PureState"]{PureState}.
+This module provides a convenient way to write programs according to
+a spreadsheet metaphor.
+
+The underlying model is inspired by
+@hyperlink["https://github.com/MaiaVictor/PureState"]{PureState},
+although the original implementation was a direct port.
+
+Some fair warnings:
+
+@itemlist[
+@item{You will find reason to represent errors as values without raising an
+exception. For example, a spreadsheet application will handle a
+division by zero by
+@hyperlink["https://filedn.com/lI3m84JVCumjvoKMPcGOsVp/images/spreadsheet%20error.png"]{showing
+a special error value} instead of crashing.}
+@item{How you write code impacts the behavior and performance of this library in ways
+that won't always be obvious.}
+]
 
 @section{Reading and Writing Values}
-To create a cell, apply @racket[stateful-cell] to a single Racket value.
+To create a cell, wrap @racket[stateful-cell] around a single Racket value.
 
 @racketblock[
 (define x (stateful-cell 1))
@@ -31,9 +46,10 @@ To set a new value, apply the cell to that value.
 (x 2) (code:comment "2")
 ]
 
-@section{Computing Dependent Values Using the Spreadsheet Metaphor}
-If you've used Excel, you know how this works: If a cell changes, then the
-cells that depend on that cell also change.
+@section{Computing Dependent Values}
+If a cell changes, then the cells that depend on that cell also
+change. That's how spreadsheets work. If you've used Excel, then
+you know how this works.
 
 Here, @racket[stateful-cell] represents optionally-dependent
 computations. The @racket[1]s and @racket[(+ (x) (y))] each act as a
@@ -45,42 +61,40 @@ computations. The @racket[1]s and @racket[(+ (x) (y))] each act as a
 (define x (stateful-cell 1))
 (define y (stateful-cell 1))
 (define sum (stateful-cell (+ (x) (y))))
-(code:comment "NOTE: By this line, (+ 1 1) already ran.")
 
-(displayln (sum)) (code:comment "2")
-(y 8) (code:comment "<-- This updates sum too")
+(displayln (sum)) (code:comment "2 *")
+(y 8) (code:comment "*")
 (displayln (sum)) (code:comment "9")
 ]
-
-When defined, a stateful cell body is evaluated first to discover its
-depdencencies and then to compute its value. The runtime is said to be
-in a @deftech{discovery phase} when evaluating the cell body for the
-purpose of finding dependencies. When evaluating expressions during this
-phase, I'll say that they do so at @deftech{discovery time}.
 
 @racket[sum] depends on @racket[x] and @racket[y] by virtue of
 use. Signals and events are not explicitly declared, meaning that this
 is not a full interface for functional reactive programming. It's just
-a nice way to model dependency relationships because it looks so much
-like normal procedure application. But don't be fooled; they are not
-the same. Evaluating @racket[(sum)] merely returns a value and does
-not run @racket[(+ (x) (y))] again.
+a nice way to model dependency relationships because it looks like
+normal procedure application. So when I say "evaluating the cell
+body" or "applying the cell", I mean the same thing. However, a cell's
+behavior is not fully equivalent to a procedure because the expression
+@racket[(+ (x) (y))] does not always run when you apply @racket[sum].
+To understand why this is, we need to cover a cell's lifecycle.
 
-Cell bodies are evaluated to synchronize values @italic{on the current
-thread when initializing or updating} a stateful cell. In the above
-example, the body of @racket[sum] evaluates when it is first defined,
-and as a consequence of evaluating @racket[(y 8)]. When evaluating
-@racket[(sum)], you are only accessing that cell's value. This is how
-library keeps data in sync while doing only minimal work; change
-propogates to dependents when change happens.
+@section{Cell Lifecycle}
+When you create a stateful cell, it starts life with no dependencies
+and a value of @racket[undefined]. The cell then goes through a
+@item{@deftech[#:key "discovery"]{discovery phase} to find dependencies.
+When evaluating expressions during this phase, I'll say
+that they do so at @deftech{discovery time}. You can opt-out of this
+phase by using explicit dependencies as per @secref{explicit-implicit}.
 
-@section{Fair Warnings}
-@itemlist[
-@item{Cycles create infinite loops. @racket[current-hard-walk-limit] is your empirical protection.}
-@item{You will find reason to represent errors as values without raising an exception. For example,
-a spreadsheet application will handle a division by zero by @hyperlink["https://filedn.com/lI3m84JVCumjvoKMPcGOsVp/images/spreadsheet%20error.png"]{showing a special error value} instead of crashing.}
-@item{Every cell will be evaluated immediately. When defining a cell, don't write any code that isn't "ready."}
-@item{It's possible to produce incorrect values as a result of a stateful cell not being visible during discovery.
+Finally, @racketmodname[kinda-ferpy] applies the cell once more to compute
+its initial value. By the time a @racket[stateful-cell] is done evaluating,
+the cell body ran either once or twice.
+
+@section[#:tag "explicit-implicit"]{Explicit vs. Implicit Dependencies}
+A cell like @racket[(stateful-cell (+ (x) (y)))] uses
+@deftech{implicit dependencies}, which are stateful cells encountered
+while evaluating the body of another cell at discovery time.
+There are blind spots that can later result in incorrect values:
+
 @racketblock[
 (define switch (stateful-cell #t))
 (define x (stateful-cell 1))
@@ -95,19 +109,11 @@ a spreadsheet application will handle a division by zero by @hyperlink["https://
 ]
 
 From the way @racket[if] works, @racket[(y)] is not evaluated at
-discovery time. It therefore will not be recognized as a dependency of
-@racket[sum].}]
+discovery time. It will not be recognized as a dependency of
+@racket[sum].
 
-Let's cover some ways to address this.
-
-@section{Explicit vs. Implicit Dependencies}
-The examples above use @deftech{implicit dependencies}, which are
-stateful cells encountered in the body of another cell at discovery
-time. Above, we showed that a discovery phase will not detect a cell
-unless it actually encounters it.
-
-You can address these blind spots by either writing expressions where
-they will always be evaluated, or listing dependencies explicitly.
+You can address this by either writing expressions where they will
+always be evaluated, or listing dependencies explicitly.
 
 For the former case, you can move dependencies that might not be
 evaluated out of the @racket[if].
@@ -129,10 +135,9 @@ evaluated out of the @racket[if].
 ]
 
 If that seems like a bad precedent to you, then you can list
-dependencies explicitly. Doing so will cause @racket[stateful-cell] to
-only apply its body to compute a value, not to discover
-dependencies. This approach allows you to bind the values
-of other cells by name, while avoiding unecessary indentation.
+dependencies for your cells explicitly. Doing so will skip evaluation
+of the cell bodies in the @tech[#:key "discovery"]{discovery phase}.
+This approach also allows you to bind the values of other cells by name.
 
 @racketblock[
 (define switch (stateful-cell #t))
@@ -153,11 +158,9 @@ of other cells by name, while avoiding unecessary indentation.
 ]
 
 Take care to list @italic{every dependency} in this case. This
-approach just changes the blind spot problem into a matter of whether
-or not you remembered to list a dependency.
-
-Why support implicit dependencies at all? Because they help you avoid
-boilerplate and save time writing.
+approach just means you have to worry about your own blind spots
+instead of the system's. If you forget to list @racket[y] as a
+dependency you'll still produce incorrect data.
 
 If you don't want to use explicit dependencies and/or still want to
 leverage the discovery phase, then you can check
@@ -179,27 +182,38 @@ compute a value.
 
 In general, it's a good idea to avoid side-effects at discovery time.
 
+@subsection[#:tag "minimizing-overhead"]{Minimizing Overhead}
+@racketmodname[kinda-ferpy] needs to keep track of information that
+can be computationally expensive to update. It will only do so if you
+write to a cell with dependents after creating at least one new cell.
+
+In other words, your program will perform best if you create all of
+your cells in advance before starting to work with them. The more you
+mix creating and updating cells, the worse off you will be.
+
 @section{Reference}
 @defform[(stateful-cell maybe-dependency ... body ...+)
          #:grammar
          [(maybe-dependency (code:line)
                             (code:line #:dependency id existing-cell-id))]]{
-Creates a stateful cell. The @racket[body] is placed inside of a
-procedure as-is. If no dependencies are explicitly defined using @racket[#:dependency],
-then the procedure containing @racket[body] will evaluate immediately to discover
-dependencies. Any stateful cell accessed in @racket[body] will be flagged
-as a dependency of the containing cell. @racket[body] will then be evaluated
-again to compute the initial value of the cell.
+Creates a stateful cell. The @racket[body] is placed inside of a new
+procedure as-is. If no dependencies are explicitly defined using
+@racket[#:dependency], then the procedure containing @racket[body]
+will evaluate immediately to discover dependencies. Any stateful cell
+accessed in @racket[body] will be flagged as a dependency of the
+containing cell. @racket[body] will then be evaluated again to compute
+the initial value of the cell.
 
 If at least one dependency is defined using @racket[#:dependency], the
-discovery phase is skipped. Each @racket[id] is an identifier that
+discovery phase will simply use the dependencies you provide instead
+of evaluating @racket[body]. Each @racket[id] is an identifier that
 will be bound to the value of the cell with a corresponding
 @racket[existing-cell-id]. In this case, @racket[body] will only be
 used to compute the value of the cell.
 
 This macro expands to an application of @racket[make-stateful-cell], which
 returns a procedure to interact with the cell. See @racket[make-stateful-cell]
-for details on this procedure.
+for more details.
 
 @racketblock[
 (define first-operand (stateful-cell 1))
@@ -231,8 +245,9 @@ of @racket[stateful-cell].
 @defproc[(make-stateful-cell [#:dependencies explicit-dependencies (listof stateful-cell?) '()]
                              [managed (if/c procedure? (-> any/c) any/c)])
                              stateful-cell?]{
-This is a procedure form for @racket[stateful-cell]. It returns a stateful cell @racket[P]
-that, when applied, returns the latest correct version of a Racket value in terms of dependencies.
+This is a procedure form for @racket[stateful-cell]. It returns a
+stateful cell @racket[P] that, when applied, returns the latest
+correct version of a Racket value in terms of dependencies.
 
 The behavior of @racket[P] and @racket[make-stateful-cell] both depend
 on @racket[managed] and @racket[explicit-dependencies].
@@ -257,10 +272,12 @@ then applied once more (where @racket[discovery-phase?] is
 are not evaluated in the body of @racket[managed] are not captured as
 dependencies.}}
 
-@item{If @racket[explicit-dependencies] is not empty, then @racket[stateful-cell] assumes that
-you know what you want and no discovery phase is necessary.  @racket[managed] will be applied once
-(with @racket[discovery-phase?] set to @racket[#f]) to initialize its cell value. @racket[explicit-dependencies]
-are used as-is to construct relationships to other cells.}
+@item{If @racket[explicit-dependencies] is not empty, then
+@racket[stateful-cell] assumes that you know what you want and no
+discovery phase is necessary.  @racket[managed] will be applied once
+(with @racket[discovery-phase?] set to @racket[#f]) to initialize its
+cell value. @racket[explicit-dependencies] are used as-is to construct
+relationships to other cells.}
 ]
 }
 
@@ -271,8 +288,8 @@ value last returned from @racket[managed].
 will synchronously update all dependent cells. Be warned that setting
 @racket[new-managed] to a different procedure will NOT initialize a new
 dependency discovery phase, nor will it change the existing dependency
-relationships of @racket[P]. If you want a new discovery phase, create
-a new stateful cell.
+relationships of @racket[P]. If you want to express new dependency
+relationships, then create a new cell.
 
 @defthing[※ stateful-cell]{
 For those who love single-character aliases and reconfiguring their editor.

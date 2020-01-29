@@ -39,6 +39,8 @@
      (node-value self)))
 
 (define stateful-cell? (procedure-rename node? 'stateful-cell?))
+(define stateful-cell-dependencies (procedure-rename node-dependencies 'stateful-cell-dependencies))
+(define stateful-cell-dependents (procedure-rename node-dependents 'stateful-cell-dependents))
 
 (define (refresh! n [steps-walked 0])
   (when (> steps-walked (current-hard-walk-limit))
@@ -203,4 +205,17 @@
     (x #f)
     (check-equal? (z) 2)
     (y 3)
-    (check-equal? (z) 3)))
+    (check-equal? (z) 3))
+
+  (test-case "Dependencies and dependents are available to those who ask"
+    (define a (stateful-cell 1))
+    (define b (stateful-cell (a)))
+    (define c (stateful-cell (b)))
+    (define (check-edges n dependencies dependents)
+      (check-equal? (stateful-cell-dependencies n)
+                    dependencies)
+      (check-equal? (stateful-cell-dependents n)
+                    dependents))
+    (check-edges a (list) (list b))
+    (check-edges b (list a) (list c))
+    (check-edges c (list b) (list))))

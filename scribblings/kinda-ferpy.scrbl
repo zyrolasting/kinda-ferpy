@@ -288,6 +288,14 @@ For the rest, there's @racket[rename-in].
 Return @racket[#t] if @racket[v] is a value constructed with @racket[stateful-cell] or @racket[make-stateful-cell].
 }
 
+@defproc[(stateful-cell-dependencies [cell stateful-cell?]) (listof stateful-cell?)]{
+Returns a list of @racket[cell]'s dependencies.
+}
+
+@defproc[(stateful-cell-dependents [cell stateful-cell?]) (listof stateful-cell?)]{
+Returns a list of @racket[cell]'s dependents.
+}
+
 @defproc[(discovery-phase?) boolean?]{
 Returns @racket[#t] if the library is currently looking for implicit dependencies.
 

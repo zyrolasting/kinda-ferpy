@@ -8,6 +8,8 @@
                      [stateful-cell ※])
          stateful-cell
          make-stateful-cell
+         stateful-cell-dependencies
+         stateful-cell-dependents
          current-hard-walk-limit
          stateful-cell?
          discovery-phase?)

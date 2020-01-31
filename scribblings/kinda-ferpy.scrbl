@@ -8,24 +8,11 @@
 @title{Expressive Functional Reactive Programming (Kinda)}
 @defmodule[kinda-ferpy]
 
-This module provides a convenient way to write programs according to
-a spreadsheet metaphor.
+This module provides a convenient way to write programs using a
+spreadsheet metaphor.
 
-The underlying model is inspired by
-@hyperlink["https://github.com/MaiaVictor/PureState"]{PureState},
-although the original implementation was a direct port.
-
-Some fair warnings:
-
-@itemlist[
-@item{You will find reason to represent errors as values without raising an
-exception. For example, a spreadsheet application will handle a
-division by zero by
-@hyperlink["https://filedn.com/lI3m84JVCumjvoKMPcGOsVp/images/spreadsheet%20error.png"]{showing
-a special error value} instead of crashing.}
-@item{How you write code impacts the behavior and performance of this library in ways
-that won't always be obvious.}
-]
+The underlying model is based on
+@hyperlink["https://github.com/MaiaVictor/PureState"]{PureState}.
 
 @section{Reading and Writing Values}
 To create a cell, wrap @racket[stateful-cell] around a single Racket value.
@@ -48,8 +35,7 @@ To set a new value, apply the cell to that value.
 
 @section{Computing Dependent Values}
 If a cell changes, then the cells that depend on that cell also
-change. That's how spreadsheets work. If you've used Excel, then
-you know how this works.
+change. If you've used Excel, then you know how this works.
 
 Here, @racket[stateful-cell] represents optionally-dependent
 computations. The @racket[1]s and @racket[(+ (x) (y))] each act as a
@@ -60,34 +46,51 @@ computations. The @racket[1]s and @racket[(+ (x) (y))] each act as a
 
 (define x (stateful-cell 1))
 (define y (stateful-cell 1))
-(define sum (stateful-cell (+ (x) (y))))
+(define sum (stateful-cell (+ (x) (y)))) (code:comment "*")
 
-(displayln (sum)) (code:comment "2 *")
+(displayln (sum)) (code:comment "2")
 (y 8) (code:comment "*")
 (displayln (sum)) (code:comment "9")
 ]
 
-@racket[sum] depends on @racket[x] and @racket[y] by virtue of
-use. Signals and events are not explicitly declared, meaning that this
-is not a full interface for functional reactive programming. It's just
-a nice way to model dependency relationships because it looks like
-normal procedure application. So when I say "evaluating the cell
-body" or "applying the cell", I mean the same thing. However, a cell's
-behavior is not fully equivalent to a procedure because the expression
-@racket[(+ (x) (y))] does not always run when you apply @racket[sum].
-To understand why this is, we need to cover a cell's lifecycle.
+Normally Racket would evaluate @racket[(+ (x) (y))] every time you
+apply @racket[sum]. But here, @racket[(+ (x) (y))] actually runs on
+the lines marked with @litchar{*}. As already stated, @racket[(sum)]
+merely retrieves a value that was already computed. @racket[sum]
+depends on @racket[x] and @racket[y] by virtue of use, and
+@racketmodname[kinda-ferpy] will keep all cells in sync for you. This
+is an example of reactive programming.
+
+If it was not already obvious, this will change how you write
+code. For example, you might find reason to represent errors as values
+without raising an exception. A spreadsheet application handles a
+division by zero by
+@hyperlink["https://filedn.com/lI3m84JVCumjvoKMPcGOsVp/images/spreadsheet%20error.png"]{showing
+a special error value} instead of crashing.
+
+Unlike other libraries and languages like FrTime, signals and events
+are not explicitly declared in @racketmodname[kinda-ferpy]. So this is
+not a full interface for reactive programming, it's just a nice way to
+model dependency relationships using procedures. That way, when I say
+"evaluating the cell body" or "applying the cell", I mean the same
+thing. However, a cell's behavior is not fully equivalent to a
+procedure because the expression @racket[(+ (x) (y))] does not always
+run when you apply @racket[sum]. To understand why this is, we need to
+cover a cell's lifecycle.
 
 @section{Cell Lifecycle}
 When you create a stateful cell, it starts life with no dependencies
 and a value of @racket[undefined]. The cell then goes through a
-@item{@deftech[#:key "discovery"]{discovery phase} to find dependencies.
-When evaluating expressions during this phase, I'll say
-that they do so at @deftech{discovery time}. You can opt-out of this
-phase by using explicit dependencies as per @secref{explicit-implicit}.
+@deftech[#:key "discovery"]{discovery phase} to find dependencies.
+When evaluating expressions during this phase, I'll say that they do
+so at @deftech{discovery time}. You can opt-out of this phase by using
+explicit dependencies as per @secref{explicit-implicit}.
 
-Finally, @racketmodname[kinda-ferpy] applies the cell once more to compute
-its initial value. By the time a @racket[stateful-cell] is done evaluating,
-the cell body ran either once or twice.
+@racketmodname[kinda-ferpy] evaluates a cell body once if carrying out
+a discovery phase. Whether it does this or not, it will still evaluate
+the cell body to compute its initial value. Meaning that by the time a
+@racket[stateful-cell] is done evaluating, the cell body ran either
+once or twice.
 
 @section[#:tag "explicit-implicit"]{Explicit vs. Implicit Dependencies}
 A cell like @racket[(stateful-cell (+ (x) (y)))] uses
@@ -180,16 +183,11 @@ compute a value.
         (call-with-input-file (file-path)
                               (unbox (file-proc))))))]
 
-In general, it's a good idea to avoid side-effects at discovery time.
-
-@subsection[#:tag "minimizing-overhead"]{Minimizing Overhead}
-@racketmodname[kinda-ferpy] needs to keep track of information that
-can be computationally expensive to update. It will only do so if you
-write to a cell with dependents after creating at least one new cell.
-
-In other words, your program will perform best if you create all of
-your cells in advance before starting to work with them. The more you
-mix creating and updating cells, the worse off you will be.
+The value you return in a cell body in a discovery phase
+(@racket[(void)], in this case), won't matter because it won't be
+stored as the value of the cell. In general, it's a good idea to avoid
+additional side-effects at discovery time. After all, encountering
+dependencies @bold{is} the intended side-effect.
 
 @section{Reference}
 @defform[(stateful-cell maybe-dependency ... body ...+)
@@ -330,9 +328,4 @@ you can use the following pattern to make dependencies visible and avoid unneces
         (call-with-input-file (file-path)
                               (unbox (file-proc))))))]
 
-}
-
-@defthing[current-hard-walk-limit (parameter/c exact-positive-integer?) #:value 10000]{
-A parameter that sets the hard maximum for the number of times change can propogate to
-dependencies. This is a simple, empirical way to respond to cycles.
 }

@@ -1,69 +1,32 @@
 #lang racket/base
 
-(require racket/class
-         racket/undefined
-         racket/list
-         "./private/model.rkt"
-         (for-syntax racket/base
-                     syntax/parse))
+;; Inspired by https://github.com/MaiaVictor/PureState
+;; See tests and docs for usage details.
 
 (provide (rename-out [stateful-cell %]
                      [stateful-cell ※])
          stateful-cell
          make-stateful-cell
+         stateful-cell-dependencies
+         stateful-cell-dependents
          stateful-cell?
          discovery-phase?)
 
-;; Inspired by https://github.com/MaiaVictor/PureState
-;; See tests and docs for usage details.
-(define captured-deps '())
+(require racket/undefined
+         racket/list
+         racket/set
+         racket/sequence
+         (for-syntax racket/base
+                     syntax/parse))
 
-; Controls discovery phase. Users may not change this.
-(define capture? (make-parameter #f))
-(define (discovery-phase?) (capture?))
+#| CELL CONSTRUCTION
 
-; This is a global instance to cover all cells the user writes.
-; I am not yet sure if I can let the user manage a collection of
-; their own graphs.
-(define global-graph (new state-graph%))
+Stateful cells are like spreadsheet cells.
 
-(define (normalize compute)
-  (if (procedure? compute)
-      compute
-      (λ _ compute)))
-
-(struct node (compute value)
-  #:mutable #:property prop:procedure
-  (λ (self [new-compute undefined])
-     (when (capture?)
-       (set! captured-deps (cons self captured-deps)))
-     (unless (eq? new-compute undefined)
-       (set-node-compute! self (normalize new-compute))
-       (refresh! self))
-     (node-value self)))
-
-(define stateful-cell?
-  (procedure-rename node? 'stateful-cell?))
-
-(define (refresh! n)
-  (set-node-value! n ((node-compute n)))
-  (send global-graph refresh-graph-info!)
-  (for ([next (send global-graph get-update-schedule n)])
-    (refresh! n)))
-
-(define (make-stateful-cell compute #:dependencies [explicit-dependencies '()])
-  (define n (node (normalize compute) undefined))
-  (define dependencies
-    (if (> (length explicit-dependencies) 0)
-        explicit-dependencies
-        (begin
-          (set! captured-deps '())
-          (parameterize ([capture? #t])
-            ((node-compute n)))
-          captured-deps)))
-  (send global-graph set-dependencies! n dependencies)
-  (set-node-value! n ((node-compute n)))
-  n)
+(define a (stateful-cell 100))
+(define b (stateful-cell 2))
+(define product (stateful-cell (* (a) (b))))
+|#
 
 (define-syntax (stateful-cell stx)
   (define-splicing-syntax-class explicit-dependency
@@ -82,6 +45,113 @@
      (raise-syntax-error 'stateful-cell
                          "Expected body after dependency bindings"
                          stx)]))
+
+(define (make-stateful-cell compute #:dependencies [explicit-dependencies '()])
+  (define cell (node (normalize compute) undefined (seteq) (seteq)))
+  (define dependencies (discover-dependencies cell explicit-dependencies))
+  (set-node-dependencies! cell dependencies)
+  (for ([dependency (in-set dependencies)])
+    (set-node-dependents! dependency
+                          (set-add (node-dependents dependency)
+                                   cell)))
+  (update! cell)
+  cell)
+
+
+#| MODEL
+
+Cells are implemented in terms of a global graph, represented as nodes
+with adjacency information.
+
+A node can be applied like a procedure to get/set an associated
+value. A node always represents data using a procedure to do this,
+hence 'normalize'.
+|#
+
+(define (normalize compute)
+  (if (procedure? compute)
+      compute
+      (λ _ compute)))
+
+(struct node (compute value dependencies dependents)
+  #:mutable #:property prop:procedure
+  (λ (self [new-compute undefined])
+    (when (discovery-phase?)
+      ((capture-dependency-handler) self))
+    (unless (eq? new-compute undefined)
+      (set-node-compute! self (normalize new-compute))
+      (update-graph! self))
+    (node-value self)))
+
+(define stateful-cell?
+  (procedure-rename node? 'stateful-cell?))
+(define stateful-cell-dependencies
+  (procedure-rename node-dependencies 'stateful-cell-dependencies))
+(define stateful-cell-dependents
+  (procedure-rename node-dependents 'stateful-cell-dependents))
+
+
+
+#| REFRESHING DATA
+
+When a node updates, all of its dependents must update exactly
+once. This is tricky because no affected cell should update
+before its affected dependencies. This section deals in making
+sure nodes have the correct values in response to change.
+|#
+(define (update! n)
+  (set-node-value! n ((node-compute n))))
+
+(define (update-graph! start)
+  (define affected (mutable-seteq))
+
+  (define (gather-affected! cell)
+    (set-add! affected cell)
+    (sequence-for-each gather-affected!
+                       (in-set (node-dependents cell))))
+
+  (define (update-affected! cell)
+    (sequence-for-each
+     (λ (dependency)
+       (when (set-member? affected dependency)
+         (update-affected! dependency)))
+     (in-set (node-dependencies cell)))
+    (update! cell)
+    (set-remove! affected cell))
+
+  (define (propogate-change! cell)
+    (update-affected! cell)
+    (for ([dependent (node-dependents cell)])
+      #:break (= 0 (set-count affected))
+      (propogate-change! dependent)))
+
+  (gather-affected! start)
+  (propogate-change! start))
+
+
+#| DEPENDENCY DISCOVERY
+
+The runtime globally enters a discovery phase during cell
+construction if the user does not specify dependencies themselves.
+This can be helpful, but the process has blind spots.
+|#
+(define capture-dependency-handler (make-parameter #f))
+
+(define (discovery-phase?)
+  (procedure? (capture-dependency-handler)))
+
+(define (discover-dependencies cell explicit-dependencies)
+  (apply seteq
+         (if (> (length explicit-dependencies) 0)
+             explicit-dependencies
+             (let ([captured-deps '()])
+               (parameterize ([capture-dependency-handler
+                               (λ (discovered)
+                                 (set! captured-deps
+                                       (cons discovered captured-deps)))])
+                 ((node-compute cell)))
+               captured-deps))))
+
 
 (module+ test
   (require rackunit)
@@ -171,7 +241,7 @@
     (define y (make-stateful-cell 2))
     (define z (make-stateful-cell #:dependencies (list x y)
                  (λ _
-                   (when (capture?) (error "should not get here"))
+                   (when (discovery-phase?) (error "should not get here"))
                    (if (x) 1 (y)))))
     (x #f)
     (check-equal? (z) 2)
@@ -183,7 +253,7 @@
     (define x (make-stateful-cell #t))
     (define y (make-stateful-cell 2))
     (define z (make-stateful-cell (λ _
-                   (when (capture?)
+                   (when (discovery-phase?)
                      (values (x) (y)))
                    (if (x) 1 (y)))))
     (x #f)
@@ -196,9 +266,18 @@
     (define y (stateful-cell 2))
     (define z (stateful-cell #:dependency a x
                              #:dependency b y
-                             (when (capture?) (error "should not get here"))
+                             (when (discovery-phase?) (error "should not get here"))
                              (if a 1 b)))
     (x #f)
     (check-equal? (z) 2)
     (y 3)
-    (check-equal? (z) 3)))
+    (check-equal? (z) 3))
+
+  (test-case "All cells affected by an update apply exactly once."
+    (define counter 0)
+    (define x (stateful-cell 1))
+    (define y (stateful-cell (x)))
+    (define z (stateful-cell (x) (y) (set! counter (add1 counter))))
+    (check-equal? counter 2)
+    (x 2)
+    (check-equal? counter 3)))

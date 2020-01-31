@@ -31,15 +31,12 @@ Stateful cells are like spreadsheet cells.
 (define-syntax (stateful-cell stx)
   (define-splicing-syntax-class explicit-dependency
     #:description "an explicit dependency binding"
-    (pattern (~seq #:dependency u:id e:id)))
+    (pattern (~seq #:dependency e:id)))
 
   (syntax-parse stx #:context #'stateful-cell
-    [(stateful-cell d:explicit-dependency ...+ body:expr ...+)
+    [(stateful-cell d:explicit-dependency ... body:expr ...+)
      #'(make-stateful-cell #:dependencies (list d.e ...)
-                           (λ () (let ([d.u (d.e)] ...) body ...)))]
-
-    [(stateful-cell body:expr ...+)
-     #'(make-stateful-cell (λ () body ...))]
+                           (λ () body ...))]
 
     [(stateful-cell d:explicit-dependency ...)
      (raise-syntax-error 'stateful-cell
@@ -261,13 +258,13 @@ This can be helpful, but the process has blind spots.
     (y 3)
     (check-equal? (z) 3))
 
-  (test-case "Explicit dependencies can be bound to new names using stateful-cell"
+  (test-case "Explicit dependencies can be declared using stateful-cell"
     (define x (stateful-cell #t))
     (define y (stateful-cell 2))
-    (define z (stateful-cell #:dependency a x
-                             #:dependency b y
+    (define z (stateful-cell #:dependency x
+                             #:dependency y
                              (when (discovery-phase?) (error "should not get here"))
-                             (if a 1 b)))
+                             (if (x) 1 (y))))
     (x #f)
     (check-equal? (z) 2)
     (y 3)

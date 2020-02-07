@@ -287,6 +287,26 @@ dependency discovery phase, nor will it change the existing dependency
 relationships of @racket[P]. If you want to express new dependency
 relationships, then create a new cell.
 
+
+@deftogether[(
+@defthing[not-in-cell symbol?]
+@defthing[current-cell-value (parameter/c any/c) #:value not-in-cell]
+)]{
+@racket[(current-cell-value)] is the value of a cell when control is
+in that cell's body. Use this to clean up or make decisions based on
+old values.
+
+@racketblock[
+(stateful-cell
+  (when (thread? (current-cell-value)
+    (kill-thread (current-cell-value))))
+  (thread ...))
+]
+
+If @racket[(eq? (current-cell-value) not-in-cell)], then control is
+not in a cell body.
+}
+
 @defthing[※ stateful-cell]{
 For those who love single-character aliases and reconfiguring their editor.
 }

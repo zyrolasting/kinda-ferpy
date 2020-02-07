@@ -140,7 +140,6 @@ evaluated out of the @racket[if].
 If that seems like a bad precedent to you, then you can list
 dependencies for your cells explicitly. Doing so will skip evaluation
 of the cell bodies in the @tech[#:key "discovery"]{discovery phase}.
-This approach also allows you to bind the values of other cells by name.
 
 @racketblock[
 (define switch (stateful-cell #t))
@@ -148,10 +147,10 @@ This approach also allows you to bind the values of other cells by name.
 (define y (stateful-cell -1))
 (define sum
   (stateful-cell
-    #:dependency x-val x
-    #:dependency y-val y
-    #:dependency s-val switch
-    (+ x-val (if s-val 1 y-val))))
+    #:dependency x
+    #:dependency y
+    #:dependency switch
+    (+ (x) (if (switch) 1 (y)))))
 
 (sum) (code:comment "2")
 (switch #f)
@@ -193,7 +192,7 @@ dependencies @bold{is} the intended side-effect.
 @defform[(stateful-cell maybe-dependency ... body ...+)
          #:grammar
          [(maybe-dependency (code:line)
-                            (code:line #:dependency id existing-cell-id))]]{
+                            (code:line #:dependency existing-cell-id))]]{
 Creates a stateful cell. The @racket[body] is placed inside of a new
 procedure as-is. If no dependencies are explicitly defined using
 @racket[#:dependency], then the procedure containing @racket[body]
@@ -204,10 +203,9 @@ the initial value of the cell.
 
 If at least one dependency is defined using @racket[#:dependency], the
 discovery phase will simply use the dependencies you provide instead
-of evaluating @racket[body]. Each @racket[id] is an identifier that
-will be bound to the value of the cell with a corresponding
-@racket[existing-cell-id]. In this case, @racket[body] will only be
-used to compute the value of the cell.
+of evaluating @racket[body]. In this case, @racket[body] will only be
+used to compute the value of the cell. Each @racket[existing-cell-id]
+is an identifier bound to another cell.
 
 This macro expands to an application of @racket[make-stateful-cell], which
 returns a procedure to interact with the cell. See @racket[make-stateful-cell]

@@ -316,9 +316,9 @@ of evaluating @racket[body] to discover cells. In this case,
 (define first-operand (stateful-cell 1))
 (define second-operand (stateful-cell 2))
 (define sum
-  (stateful-cell #:dependency a first-operand
-                 #:dependency b second-operand
-                 (+ a b)))
+  (stateful-cell #:dependency first-operand
+                 #:dependency second-operand
+                 (+ (first-operand) (second-operand))))
 
 (define square (stateful-cell (* (sum) (sum))))
 ]

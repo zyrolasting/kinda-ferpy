@@ -5,6 +5,7 @@
 
 (provide (rename-out [stateful-cell %]
                      [stateful-cell ※])
+         current-cell-value
          stateful-cell
          make-stateful-cell
          stateful-cell-dependencies
@@ -99,8 +100,16 @@ once. This is tricky because no affected cell should update
 before its affected dependencies. This section deals in making
 sure nodes have the correct values in response to change.
 |#
+
+; Some cells may need to clean up their old values, but there's
+; already user feedback asking not to have formals for the cell
+; body. A parameter acts as a compromise.
+(define not-in-cell (gensym))
+(define current-cell-value (make-parameter not-in-cell))
+
 (define (update! n)
-  (set-node-value! n ((node-compute n))))
+  (parameterize ([current-cell-value (node-value n)])
+    (set-node-value! n ((node-compute n)))))
 
 (define (update-graph! start)
   (define affected (mutable-seteq))
@@ -148,7 +157,8 @@ This can be helpful, but the process has blind spots.
                (parameterize ([capture-dependency-handler
                                (λ (discovered)
                                  (set! captured-deps
-                                       (cons discovered captured-deps)))])
+                                       (cons discovered captured-deps)))]
+                              [current-cell-value (node-value cell)])
                  ((node-compute cell)))
                captured-deps))))
 
@@ -280,4 +290,39 @@ This can be helpful, but the process has blind spots.
     (define z (stateful-cell (x) (y) (set! counter (add1 counter))))
     (check-equal? counter 2)
     (x 2)
-    (check-equal? counter 3)))
+    (check-equal? counter 3))
+
+  (test-case "You can dynamically access a cell's current value"
+    (define call-count 0)
+    (define x
+      (stateful-cell
+       (set! call-count (add1 call-count))
+       (if (< call-count 2)
+           (test-eq? "A cell's value is undefined during the discovery phase and initial compute."
+                     undefined (current-cell-value))
+           1)))
+
+    (test-eq? "A symbol distinguishes between being in or out of a cell body"
+              not-in-cell
+              (current-cell-value))
+
+    (define (spawn-useless-thread)
+      (thread (λ _ (let loop () (loop)))))
+
+    (define threads '())
+    (define (add-thread! th)
+      (set! threads (cons th threads))
+      th)
+
+    (define %signal (stateful-cell 0))
+    (define %spawner
+      (stateful-cell #:dependency s %signal
+                     (when (thread? (current-cell-value))
+                       (kill-thread (current-cell-value)))
+                     (add-thread! (spawn-useless-thread))))
+
+    ; Spawns some threads.
+    (for ([i (in-range 10)]) (%signal i))
+
+    (test-equal? "Cells can clean up their old values" 1 (count thread-running? threads))
+    (void (map kill-thread threads))))

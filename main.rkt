@@ -313,7 +313,7 @@ This can be helpful, but the process has blind spots.
 
     (define %signal (stateful-cell 0))
     (define %spawner
-      (stateful-cell #:dependency s %signal
+      (stateful-cell #:dependency %signal
                      (when (thread? (current-cell-value))
                        (kill-thread (current-cell-value)))
                      (add-thread! (spawn-useless-thread))))

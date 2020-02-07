@@ -6,6 +6,7 @@
 (provide (rename-out [stateful-cell %]
                      [stateful-cell ※])
          current-cell-value
+         not-in-cell
          stateful-cell
          make-stateful-cell
          stateful-cell-dependencies

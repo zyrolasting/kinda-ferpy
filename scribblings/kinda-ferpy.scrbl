@@ -9,12 +9,15 @@
 @defmodule[kinda-ferpy]
 
 This module provides a convenient way to write programs using a
-spreadsheet metaphor.
+spreadsheet metaphor. The underlying model is based on the
+@hyperlink["https://github.com/MaiaVictor/PureState"]{PureState
+JavaScript library}.
 
-The underlying model is based on
-@hyperlink["https://github.com/MaiaVictor/PureState"]{PureState}.
+@section{Guide}
+This section provides a walkthrough. If you already understand the basics,
+skip to the @secref{reference}.
 
-@section{Reading and Writing Values}
+@subsection{Reading and Writing Values}
 To create a cell, wrap @racket[stateful-cell] around a single Racket value.
 
 @racketblock[
@@ -33,7 +36,7 @@ To set a new value, apply the cell to that value.
 (x 2) (code:comment "2")
 ]
 
-@section{Computing Dependent Values}
+@subsection{Computing Dependent Values}
 If a cell changes, then the cells that depend on that cell also
 change. If you've used Excel, then you know how this works.
 
@@ -78,13 +81,13 @@ procedure because the expression @racket[(+ (x) (y))] does not always
 run when you apply @racket[sum]. To understand why this is, we need to
 cover a cell's lifecycle.
 
-@section{Cell Lifecycle}
+@subsection{Cell Lifecycle}
 When you create a stateful cell, it starts life with no dependencies
 and a value of @racket[undefined]. The cell then goes through a
 @deftech[#:key "discovery"]{discovery phase} to find dependencies.
 When evaluating expressions during this phase, I'll say that they do
 so at @deftech{discovery time}. You can opt-out of this phase by using
-explicit dependencies as per @secref{explicit-implicit}.
+explicit dependencies as defined in @secref{explicit-implicit}.
 
 @racketmodname[kinda-ferpy] evaluates a cell body once if carrying out
 a discovery phase. Whether it does this or not, it will still evaluate
@@ -92,7 +95,7 @@ the cell body to compute its initial value. Meaning that by the time a
 @racket[stateful-cell] is done evaluating, the cell body ran either
 once or twice.
 
-@section[#:tag "explicit-implicit"]{Explicit vs. Implicit Dependencies}
+@subsection[#:tag "explicit-implicit"]{Explicit vs. Implicit Dependencies}
 A cell like @racket[(stateful-cell (+ (x) (y)))] uses
 @deftech{implicit dependencies}, which are stateful cells encountered
 while evaluating the body of another cell at discovery time.
@@ -183,7 +186,111 @@ stored as the value of the cell. Exercise caution with additional
 side-effects at discovery time, because encountering dependencies
 @bold{is} the intended side-effect.
 
-@section{Reference}
+@subsection{Synchronization}
+Remember that propogation to all affected cells occurs on a single
+thread. Multi-threaded applications must treat cells as a shared
+resource to avoid propogating conflicting data. The below example is
+equivalent to one hundred threads competing over the current output
+port:
+
+@racketblock[
+(define data-cell
+  (stateful-cell 0))
+(define print-cell
+  (stateful-cell (printf "~a " (data-cell))))
+
+(void
+ (map (λ (i) (thread (λ () (data-cell i))))
+      (range 100)))
+]
+
+On a lighter note, change cannot propogate between disconnected
+cells. One thread may safely read up-to-date information from cells
+that won't be affected by another thread.
+
+@racketblock[
+(define a (stateful-cell 1))
+(define b (stateful-cell (a)))
+...
+(define p (stateful-cell (o)))
+
+(define th (thread (λ () (a 2))))
+
+(define q (stateful-cell 1))
+(define r (stateful-cell (q)))
+...
+(define z (stateful-cell (y)))
+(z)
+]
+
+Cells @racket[a] through @racket[p] have no connection to
+cells @racket[q] through @racket[z]. Change happens to propogate
+safely so long as no two threads try to write to connected cells.
+
+But that's just it: It @italic{happens} to be okay. That's a pitiful
+standard for engineering, so we need a way to leverage threads for
+cells when it matters.
+
+We'll use @racket[make-stateful-cell/async] creates an
+@deftech{asynchronous cell} that applies a procedure of your choice
+immediately without blocking. You can apply the async cell to wait for
+the value of that procedure later.
+
+@margin-note{Explicit dependencies are necessary here because a
+discovery phase will not find them in the body of a new thread.}
+
+@racketblock[
+(define %file-path (stateful-cell (build-path "my-file")))
+(define %file-content-read
+  (make-stateful-cell/async #:dependencies (list %file-path)
+     (λ () (file->string (%file-path)))))
+]
+
+When you are ready to wait for the file contents, do this:
+
+@racketblock[
+(define reader (%file-content-read))
+(define file-value (reader))
+]
+
+What about exceptions? If the procedure you use in an async cell
+raises an exception, it will be caught and re-raised at the time
+you wait for the value.
+
+@racketblock[
+(define reader (%file-content-read))
+(define file-value (with-handlers ([exn:fail? exn-message]) (reader)))
+]
+
+Every cell that depends on asynchronous I/O should assume that the
+value won't be immediately available. Let's say we write a dependent
+cell that immediately blocks to wait for content:
+
+@racketblock[
+(define %content
+  (stateful-cell
+   (define content ((%file-content-read)))
+   (string-append "Got from file: " content)))
+]
+
+That just defeats the purpose. It should look like this:
+
+@racketblock[
+(define %content-modifier
+  (stateful-cell
+   (define reader (%file-content-read))
+   (λ ()
+     (define content (reader))
+     (string-append "Got from file: " content))))
+]
+
+@racket[%content-modifier] depends on @racket[%file-content-read], but
+does not block waiting for the file's contents. Once something finally
+applies the procedure that waits for values, then it will get the latest
+content.
+
+
+@section[#:tag "reference"]{Reference}
 @defform[(stateful-cell maybe-dependency ... body ...+)
          #:grammar
          [(maybe-dependency (code:line)
@@ -281,6 +388,40 @@ dependency discovery phase, nor will it change the existing dependency
 relationships of @racket[P]. If you want to express new dependency
 relationships, then create a new cell.
 
+@defproc[(make-stateful-cell/async [#:dependencies explicit-dependencies (listof stateful-cell?) '()]
+                                   [managed (-> any/c)])
+                                   stateful-cell?]{
+Like @racket[make-stateful-cell], with a few differences.
+
+This actually creates two cells. You just get one of them. The other is kept private.
+
+The private cell applies @racket[managed] immediately in a new thread
+T, and uses that thread as its value.  Whenever a dependency in
+@racket[explicit-dependencies] changes, the private cell will apply
+@racket[(thread-break T)] and apply @racket[managed] in a new thread.
+
+A dependency discovery pass will not detect any cells in the body of
+@racket[managed], so you must leverage @racket[explicit-dependencies]
+to capture changes relevant to @racket[managed].
+
+The cell returned to you depends on the private cell. The returned
+cell's value is a procedure @racket[R] that, when applied, waits for
+the private cell's thread to terminate and then returns the value of
+@racket[managed]. If @racket[managed] raises an exception, then
+@racket[(R)] will raise that exception.
+
+@racketblock[
+(define %file-path (stateful-cell (build-path "my-file")))
+(define %file-content-read
+  (make-stateful-cell/async #:dependencies (list %file-path)
+     (λ () (file->string (%file-path)))))
+
+(define get-the-value (%file-content-read))
+(with-handlers ([exn:fail:filesystem?
+                 (printf "Could not read ~a~n" (%file-path))])
+  (get-the-value))
+]
+}
 
 @deftogether[(
 @defthing[not-in-cell symbol?]

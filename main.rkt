@@ -9,6 +9,7 @@
          not-in-cell
          stateful-cell
          make-stateful-cell
+         make-stateful-cell/async
          stateful-cell-dependencies
          stateful-cell-dependents
          stateful-cell?
@@ -29,7 +30,6 @@ Stateful cells are like spreadsheet cells.
 (define b (stateful-cell 2))
 (define product (stateful-cell (* (a) (b))))
 |#
-
 (define-syntax (stateful-cell stx)
   (define-splicing-syntax-class explicit-dependency
     #:description "an explicit dependency binding"
@@ -56,6 +56,31 @@ Stateful cells are like spreadsheet cells.
   (update! cell)
   cell)
 
+
+(define (make-stateful-cell/async #:dependencies [explicit-dependencies '()] compute)
+  (define pair (cons #f #f))
+  (define (get-value) (car pair))
+  (define (raised?) (cdr pair))
+  (define %thread
+    (make-stateful-cell #:dependencies explicit-dependencies
+      (λ ()
+        (when (thread? (current-cell-value))
+          (break-thread (current-cell-value)))
+        (thread
+         (λ ()
+           (set! pair
+                 (with-handlers ([(λ _ #t)
+                                  (λ (e) (cons e #t))])
+                   (cons (compute) #f))))))))
+
+  (make-stateful-cell #:dependencies (list %thread)
+                      (λ ()
+                        (λ ()
+                          (thread-wait (%thread))
+                          (define v (get-value))
+                          (if (raised?)
+                              (raise v)
+                              v)))))
 
 #| MODEL
 
@@ -323,4 +348,26 @@ This can be helpful, but the process has blind spots.
     (for ([i (in-range 10)]) (%signal i))
 
     (test-equal? "Cells can clean up their old values" 1 (count thread-running? threads))
-    (void (map kill-thread threads))))
+    (void (map kill-thread threads)))
+
+  (test-case "Asynchronous cells allow you to wait for results"
+    (define started? #f)
+    (define cell
+      (make-stateful-cell/async
+       (λ () (set! started? #t)
+          (read (open-input-string "gotit")))))
+    (sleep 0.1) ; Yield to thread so it is likely to set started?
+    (check-true started?)
+    (check-true (procedure? (cell)))
+    (check-equal? ((cell)) 'gotit))
+
+  (test-case "Asynchronous cells re-raise raised values on wait"
+    (define to-raise 'im-an-error)
+    (define (thread-proc) (raise to-raise))
+    (check-not-exn
+     (λ () (make-stateful-cell/async thread-proc)))
+    (check-exn
+     (λ (v) (eq? to-raise v))
+     (λ ()
+       (define cell (make-stateful-cell/async thread-proc))
+       ((cell))))))

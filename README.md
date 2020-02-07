@@ -11,7 +11,7 @@ certain kinds of work super convenient and nice.
 
 (define x (stateful-cell 1))
 (define y (stateful-cell 1))
-(define sum (stateful-cell (λ _ (+ (x) (y)))))
+(define sum (stateful-cell (+ (x) (y))))
 
 (displayln (sum)) ; 2
 (y 8)

@@ -113,12 +113,8 @@ There are blind spots that can later result in incorrect values:
 
 From the way @racket[if] works, @racket[(y)] is not evaluated at
 discovery time. It will not be recognized as a dependency of
-@racket[sum].
-
-You can address this by either writing expressions where they will
-always be evaluated, or listing dependencies explicitly.
-
-For the former case, you can move dependencies that might not be
+@racket[sum]. If you want to leverage the discovery phase to find all
+dependencies, then you need to move dependencies that might not be
 evaluated out of the @racket[if].
 
 @racketblock[
@@ -133,13 +129,14 @@ evaluated out of the @racket[if].
 (sum) (code:comment "2")
 (switch #f)
 (sum) (code:comment "0")
-(y 0) (code:comment "Will update the cell now")
+(y 0) (code:comment "Will update sum now")
 (sum) (code:comment "1")
 ]
 
 If that seems like a bad precedent to you, then you can list
-dependencies for your cells explicitly. Doing so will skip evaluation
-of the cell bodies in the @tech[#:key "discovery"]{discovery phase}.
+@deftech{explicit dependencies} for your cells using the
+@racket[#:dependency] keyword. Doing so will skip the @tech[#:key
+"discovery"]{discovery phase} for the corresponding cell.
 
 @racketblock[
 (define switch (stateful-cell #t))
@@ -155,17 +152,16 @@ of the cell bodies in the @tech[#:key "discovery"]{discovery phase}.
 (sum) (code:comment "2")
 (switch #f)
 (sum) (code:comment "0")
-(y 0) (code:comment "Will update the cell now")
+(y 0) (code:comment "Will update sum")
 (sum) (code:comment "1")
 ]
 
-Take care to list @italic{every dependency} in this case. This
-approach just means you have to worry about your own blind spots
-instead of the system's. If you forget to list @racket[y] as a
-dependency you'll still produce incorrect data.
+Take care to list @italic{every dependency} when using explicit
+dependencies. If you forget to list @racket[y] as a dependency you'll
+still produce incorrect data.
 
-If you don't want to use explicit dependencies and/or still want to
-leverage the discovery phase, then you can check
+If you don't want to use explicit dependencies and want to respond to
+the discovery phase itself, then you can check
 @racket[(discovery-phase?)] within a stateful cell body. It will tell
 you if the cell is being evaluated at discovery time. This gives you a
 hybrid approach where you can list dependencies for discovery, and
@@ -177,16 +173,15 @@ compute a value.
   (stateful-cell
     (if (discovery-phase?)
         (begin (file-path)
-               (file-proc)
-               (void))
+               (file-proc))
         (call-with-input-file (file-path)
-                              (unbox (file-proc))))))]
+                              (file-proc)))))]
 
 The value you return in a cell body in a discovery phase
-(@racket[(void)], in this case), won't matter because it won't be
-stored as the value of the cell. In general, it's a good idea to avoid
-additional side-effects at discovery time. After all, encountering
-dependencies @bold{is} the intended side-effect.
+(@racket[(file-proc)], in this case), won't matter because it won't be
+stored as the value of the cell. Exercise caution with additional
+side-effects at discovery time, because encountering dependencies
+@bold{is} the intended side-effect.
 
 @section{Reference}
 @defform[(stateful-cell maybe-dependency ... body ...+)
@@ -203,13 +198,12 @@ the initial value of the cell.
 
 If at least one dependency is defined using @racket[#:dependency], the
 discovery phase will simply use the dependencies you provide instead
-of evaluating @racket[body]. In this case, @racket[body] will only be
-used to compute the value of the cell. Each @racket[existing-cell-id]
-is an identifier bound to another cell.
+of evaluating @racket[body] to discover cells. In this case,
+@racket[body] will only be used to compute the value of the cell. Each
+@racket[existing-cell-id] is an identifier bound to another cell.
 
-This macro expands to an application of @racket[make-stateful-cell], which
-returns a procedure to interact with the cell. See @racket[make-stateful-cell]
-for more details.
+@racket[stateful-cell] is a macro that expands to an application of
+@racket[make-stateful-cell]. See @racket[make-stateful-cell] for more details.
 
 @racketblock[
 (define first-operand (stateful-cell 1))
@@ -251,9 +245,9 @@ on @racket[managed] and @racket[explicit-dependencies].
 If @racket[managed] is not a procedure, then @racket[(P)] will return
 @racket[managed].
 
-If @racket[managed] is a procedure, then @racket[stateful-cell] will
-@bold{immediately} apply @racket[managed] once or twice according to
-the value of @racket[explicit-dependencies]:
+If @racket[managed] is a procedure, then @racket[make-stateful-cell]
+will @bold{immediately} apply @racket[managed] once or twice according
+to the value of @racket[explicit-dependencies]:
 
 @itemlist[
 @item{If @racket[explicit-dependencies] is an empty list, then
@@ -269,7 +263,7 @@ are not evaluated in the body of @racket[managed] are not captured as
 dependencies.}}
 
 @item{If @racket[explicit-dependencies] is not empty, then
-@racket[stateful-cell] assumes that you know what you want and no
+@racket[make-stateful-cell] assumes that you know what you want and no
 discovery phase is necessary.  @racket[managed] will be applied once
 (with @racket[discovery-phase?] set to @racket[#f]) to initialize its
 cell value. @racket[explicit-dependencies] are used as-is to construct

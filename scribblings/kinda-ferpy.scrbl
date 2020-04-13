@@ -233,10 +233,10 @@ But that's just it: It @italic{happens} to be okay. That's a pitiful
 standard for engineering, so we need a way to leverage threads for
 cells when it matters.
 
-We'll use @racket[make-stateful-cell/async] creates an
-@deftech{asynchronous cell} that applies a procedure of your choice
-immediately without blocking. You can apply the async cell to wait for
-the value of that procedure later.
+We'll use @racket[make-stateful-cell/async] to create an
+@deftech{asynchronous cell}. An asynchronous (or "async") cell applies
+a procedure of your choice immediately, without blocking. You can
+apply the async cell to wait for the value of that procedure later.
 
 @margin-note{Explicit dependencies are necessary here because a
 discovery phase will not find them in the body of a new thread.}

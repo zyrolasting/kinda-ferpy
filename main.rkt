@@ -330,7 +330,7 @@ This can be helpful, but the process has blind spots.
               (current-cell-value))
 
     (define (spawn-useless-thread)
-      (thread (λ _ (let loop () (loop)))))
+      (thread (λ _ (sync never-evt))))
 
     (define threads '())
     (define (add-thread! th)

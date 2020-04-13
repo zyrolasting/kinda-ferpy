@@ -6,6 +6,8 @@
                     racket/undefined]]
 
 @title{Expressive Functional Reactive Programming (Kinda)}
+@author{Sage Gerard}
+
 @defmodule[kinda-ferpy]
 
 This module provides a convenient way to write programs using a

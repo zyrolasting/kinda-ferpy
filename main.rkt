@@ -132,7 +132,8 @@ sure nodes have the correct values in response to change.
 
 (define (update! n)
   (parameterize ([current-cell-value (node-value n)])
-    (set-node-value! n ((node-compute n)))))
+    (set-node-value! n (with-handlers ([values values])
+                         ((node-compute n))))))
 
 (define (update-graph! start)
   (define affected (mutable-seteq))
